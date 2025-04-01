@@ -24,7 +24,7 @@ BLUE2 = (0, 100, 255)
 BLACK = (0,0,0)
 
 BLOCK_SIZE = 20
-SPEED = 20
+SPEED = 80
 
 class SnakeGame:
     
@@ -75,13 +75,13 @@ class SnakeGame:
         # 3. check if game over
         game_over = False
         if self.is_collision() or self.steps > len(self.snake) * 40:
-            reward = -1
+            reward = -15
             game_over = True
             return reward, game_over, self.score
             
         # 4. place new food or just move
         if self.head == self.food:
-            reward = 1
+            reward = 15
             self.score += 1
             self._place_food()
         else:
@@ -123,9 +123,9 @@ class SnakeGame:
         directions = [ Direction.RIGHT, Direction.DOWN, Direction.LEFT, Direction.UP ]
         index = directions.index(self.direction)
 
-        if np.array_equal(action, [0, 1, 0]):
+        if action == 1:
             index = (index - 1) % 4
-        elif np.array_equal(action, [0, 0, 1]):
+        elif action == 2:
             index = (index + 1) % 4
         
         self.direction = directions[index]
