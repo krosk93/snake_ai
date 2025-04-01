@@ -15,7 +15,7 @@ from torchrl.data import TensorDictReplayBuffer, LazyMemmapStorage
 LR                  = 0.001
 GAMMA               = 0.9
 EPSILON             = 1
-EPSILON_DECAY       = 0.95
+EPSILON_DECAY       = 0.9999
 EPSILON_MIN         = 0.01
 BATCH_SIZE          = 64
 SYNC_NETWORK_RATE   = 1000
@@ -38,8 +38,8 @@ class Agent:
         self.learn_step_counter = 0
         self.gamma = gamma # Discount rate
         self.lr = lr
-        self.online_model = Network(11, 256, 3)
-        self.target_model = Network(11, 256, 3, freeze=True)
+        self.online_model = Network((1, 24, 32), 11, 3)
+        self.target_model = Network((1, 24, 32), 11, 3, freeze=True)
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
         self.epsilon_min = epsilon_min
@@ -51,6 +51,18 @@ class Agent:
 
         self.optimizer = optim.Adam(self.online_model.parameters(), lr)
         self.criterion = nn.MSELoss()
+
+    def board(self, game):
+        sizex = game.w // game.BLOCK_SIZE
+        sizey = game.h // game.BLOCK_SIZE
+        board = np.zeros((sizey, sizex), dtype=np.float32)
+        for i in range(len(game.snake)):
+            posx = int(game.snake[i].x) // game.BLOCK_SIZE
+            posy = int(game.snake[i].y) // game.BLOCK_SIZE
+            if posy < sizey and posx < sizex:
+                board[posy][posx] = 1 if i == 0 else 0.7
+        board[game.food.y // game.BLOCK_SIZE][game.food.x // game.BLOCK_SIZE] = -1
+        return board
 
     
     def state(self, game):
@@ -99,14 +111,17 @@ class Agent:
 
         return np.array(state, dtype=int)
     
-    def action(self, state):
+    def action(self, state, board):
         if np.random.random() < self.epsilon:
             index = np.random.randint(3)
         else:
             state_tensor = torch.tensor(np.array(state), dtype=torch.float) \
                 .unsqueeze(0) \
                 .to(self.online_model.device)
-            index = self.online_model(state_tensor).argmax().item()
+            board_tensor = torch.tensor(np.array(board), dtype=torch.float32) \
+                .unsqueeze(0).unsqueeze(0) \
+                .to(self.online_model.device)
+            index = self.online_model(board_tensor, state_tensor).argmax().item()
         return index
     
     def sync_networks(self):
@@ -123,14 +138,14 @@ class Agent:
 
         samples = self.memory.sample(self.batch_size).to(self.online_model.device)
 
-        keys = ("state", "action", "reward", "next_state", "done")
+        keys = ("state", "board", "action", "reward", "next_state", "next_board", "done")
 
-        states, actions, rewards, next_states, dones = [samples[key] for key in keys]
+        states, boards, actions, rewards, next_states, next_boards, dones = [samples[key] for key in keys]
 
-        predicted_q_values = self.online_model(states)
+        predicted_q_values = self.online_model(boards, states)
         predicted_q_values = predicted_q_values[np.arange(self.batch_size), actions.squeeze()]
 
-        target_q_values = self.target_model(next_states).max(dim=1)[0]
+        target_q_values = self.target_model(next_boards, next_states).max(dim=1)[0]
         target_q_values = rewards + self.gamma * target_q_values * (1 - dones.float())
 
         loss = self.criterion(predicted_q_values, target_q_values)
@@ -140,12 +155,14 @@ class Agent:
         self.learn_step_counter += 1
         self.decay_epsilon()
 
-    def save_step(self, state, action, reward, new_state, done):
+    def save_step(self, state, board, action, reward, new_state, new_board, done):
         self.memory.add(TensorDict({ 
                                     "state": torch.tensor(state, dtype=torch.float),
+                                    "board": torch.tensor(board, dtype=torch.float32).unsqueeze(0),
                                     "action": torch.tensor(np.array(action), dtype=torch.long),
                                     "reward": torch.tensor(reward, dtype=torch.float),
                                     "next_state": torch.tensor(new_state, dtype=torch.float),
+                                    "next_board": torch.tensor(new_board, dtype=torch.float32).unsqueeze(0),
                                     "done": torch.tensor(done)
                                 }, batch_size=[]))
 
@@ -162,13 +179,15 @@ def play():
         done = False
         while not done:
             state = agent.state(game)
-            action = agent.action(state)
+            board = agent.board(game)
+            action = agent.action(state, board)
             reward, done, score = game.play_step(action)
             new_state = agent.state(game)
+            new_board = agent.board(game)
 
             total_reward += reward
 
-            agent.save_step(state, action, reward, new_state, done)
+            agent.save_step(state, board, action, reward, new_state, new_board, done)
             agent.train()
 
         game.reset()
@@ -178,7 +197,7 @@ def play():
             max_score = score
             agent.online_model.save()
 
-        print('Game: ', agent.game_counter, 'Score: ', score, 'Max Score: ', max_score, 'Total reward: ', total_reward)
+        print('Game: ', agent.game_counter, 'Score: ', score, 'Max Score: ', max_score, 'Total reward: ', total_reward, 'Epsilon: ', agent.epsilon)
 
 if __name__ == '__main__':
     play()

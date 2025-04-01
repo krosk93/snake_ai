@@ -37,6 +37,8 @@ class SnakeGame:
         self.clock = pygame.time.Clock()
         self.BLOCK_SIZE = BLOCK_SIZE
         self.reset()
+        self.max_distance = (self.w // self.BLOCK_SIZE) + (self.h // self.BLOCK_SIZE)
+        self.prev_distance = self.max_distance
         
     def reset(self):
         # init game state
@@ -51,7 +53,13 @@ class SnakeGame:
         self.steps = 0
         self.food = None
         self._place_food()
+        self.prev_distance = self._compute_distance()
         
+    def _compute_distance(self):
+        head = self.snake[0]
+        food = self.food
+        return (abs(self.head.x - self.food.x) // self.BLOCK_SIZE) + (abs(self.head.y - self.food.y) // self.BLOCK_SIZE)
+    
     def _place_food(self):
         x = random.randint(0, (self.w-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE 
         y = random.randint(0, (self.h-BLOCK_SIZE )//BLOCK_SIZE )*BLOCK_SIZE
@@ -71,6 +79,11 @@ class SnakeGame:
         self._move(action) # update the head
         self.snake.insert(0, self.head)
         
+        curr_distance = self._compute_distance()
+        closer = False
+        if(curr_distance < self.prev_distance): closer = True
+        self.prev_distance = curr_distance
+
         reward = 0
         # 3. check if game over
         game_over = False
@@ -86,6 +99,11 @@ class SnakeGame:
             self._place_food()
         else:
             self.snake.pop()
+            if reward == 0:
+                if closer:
+                    reward = 2
+                else:
+                    reward = -2
         
         # 5. update ui and clock
         self._update_ui()
