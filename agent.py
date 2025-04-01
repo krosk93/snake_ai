@@ -1,4 +1,5 @@
 from collections import deque
+import os
 import random
 from snake_game import Point, Direction, SnakeGame
 from model import Network
@@ -23,6 +24,8 @@ SYNC_NETWORK_RATE   = 1000
 
 MEMORY_LENGTH       = 100000
 SAMPLE_SIZE         = 1000
+
+SHOULD_TRAIN        = False
 
 
 class Agent:
@@ -169,11 +172,25 @@ class Agent:
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon * self.epsilon_decay, self.epsilon_min)
 
+    def load_model(self, path):
+        self.online_model.load_state_dict(torch.load(path))
+        self.target_model.load_state_dict(torch.load(path))
+
     
 def play():
     max_score = 0
+    total_score = 0
     agent = Agent()
     game = SnakeGame()
+
+    if not SHOULD_TRAIN:
+        file_name = 'model.pth'
+        file_name = os.path.join('./model', file_name)
+        agent.load_model(file_name)
+        agent.epsilon = 0.0
+        agent.epsilon_min = 0.0
+        agent.epsilon_decay = 0.0
+
     while True:
         total_reward = 0
         done = False
@@ -186,9 +203,9 @@ def play():
             new_board = agent.board(game)
 
             total_reward += reward
-
-            agent.save_step(state, board, action, reward, new_state, new_board, done)
-            agent.train()
+            if SHOULD_TRAIN:
+                agent.save_step(state, board, action, reward, new_state, new_board, done)
+                agent.train()
 
         game.reset()
         agent.game_counter += 1
@@ -197,7 +214,10 @@ def play():
             max_score = score
             agent.online_model.save()
 
-        print('Game: ', agent.game_counter, 'Score: ', score, 'Max Score: ', max_score, 'Total reward: ', total_reward, 'Epsilon: ', agent.epsilon)
+        total_score += score
+        mean_score = total_score / agent.game_counter
+
+        print('Game: ', agent.game_counter, 'Score: ', score, 'Max Score: ', max_score, 'Total reward: ', total_reward, 'Epsilon: ', agent.epsilon, 'Mean Score: ', mean_score)
 
 if __name__ == '__main__':
     play()
